@@ -9,3 +9,5 @@ docs/PROGRESS.md
 *.log
 *.tsbuildinfo
 .tmp/
+.demo-work/
+*.mp4
