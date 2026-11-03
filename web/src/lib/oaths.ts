@@ -1,4 +1,4 @@
-import { bpsToPct, dateLabel, duration, near, percent, tokens } from "./format";
+import { bpsToPct, dateLabel, duration, near, percent, tokens } from "./format.js";
 import type { BondedOathView, Certificate, LaunchParams, OathStatus } from "./types";
 
 export type OathKind = "sealed" | "bonded";
