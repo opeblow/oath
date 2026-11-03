@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -55,7 +56,11 @@ jobs:
         with: { node-version: 22 }
       - name: Sandbox end-to-end tests
         working-directory: contracts/sandbox-tests
-        run: npm install && npm test
+        run: |
+          npm install
+          mkdir -p .tmp
+          export TMPDIR=$PWD/.tmp
+          npm test || (echo "Retrying after a sandbox download error" && sleep 20 && npm test)
 
   auditor:
     runs-on: ubuntu-latest
