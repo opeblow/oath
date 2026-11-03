@@ -8,3 +8,4 @@ target/
 docs/PROGRESS.md
 *.log
 *.tsbuildinfo
+.tmp/
