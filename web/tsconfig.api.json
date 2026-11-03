@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["api", "src/lib/audit.ts", "src/lib/types.ts", "src/lib/format.ts", "src/lib/oaths.ts"]
+}
