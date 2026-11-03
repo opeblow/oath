@@ -1,9 +1,9 @@
 // Core of POST /api/ask. Shared by the Vercel function and the Vite dev server.
 
-import { audit } from "../../src/lib/audit";
-import { bondedOaths, sealedOaths } from "../../src/lib/oaths";
+import { audit } from "../../src/lib/audit.js";
+import { bondedOaths, sealedOaths } from "../../src/lib/oaths.js";
 import type { Certificate } from "../../src/lib/types";
-import { checkAttestation, recoverSigner, sha256Hex } from "./verify";
+import { checkAttestation, recoverSigner, sha256Hex } from "./verify.js";
 
 const BASE = "https://cloud-api.near.ai/v1";
 export const MODEL = process.env.NEAR_AI_MODEL || "deepseek-ai/DeepSeek-V4.1-Flash-1017";
