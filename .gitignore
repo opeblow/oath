@@ -7,3 +7,4 @@ target/
 *.tgz
 docs/PROGRESS.md
 *.log
+*.tsbuildinfo
