@@ -90,7 +90,7 @@ near account list-keys oathcoin.testnet network-config testnet now
 
 ## Try it with a testnet wallet
 
-Get free testnet NEAR from the [faucet](https://near-faucet.io) and connect Meteor, HOT or another NEAR wallet on the site.
+Get free testnet NEAR from the [faucet](https://near-faucet.io) and connect Meteor, Intear or Nightly on the site (all support testnet).
 
 | Do | See |
 | --- | --- |
