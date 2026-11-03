@@ -177,7 +177,7 @@ cd mcp && npm install && npm run build
 
 Then ask your agent: *"Is kept.oathcoin.testnet safe to buy? Verify and audit it."* or *"Can I enforce any OATH oath right now?"*
 
-**Watcher bot.** It scans every coin and enforces broken oaths for the 5% bounty. It runs every hour on GitHub Actions ([`watcher.yml`](.github/workflows/watcher.yml)), and it is the bot that enforced the broken oath on $FIRST.
+**Watcher bot.** It scans every coin and enforces broken oaths for the 5% bounty. It runs every 20 minutes on GitHub Actions ([`watcher.yml`](.github/workflows/watcher.yml)), and it is the bot that enforced the broken oath on $FIRST.
 
 ```bash
 cp .env.example .env    # NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY of a testnet account
