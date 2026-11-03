@@ -1,0 +1,90 @@
+{
+ "broken.json": {
+  "grade": "D",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "vesting:warn",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:ok",
+   "oath-1:risk"
+  ]
+ },
+ "first.json": {
+  "grade": "C",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "vesting:warn",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:ok",
+   "oath-1:note"
+  ]
+ },
+ "insolvent.json": {
+  "grade": "D",
+  "findings": [
+   "solvent:risk",
+   "alloc:ok",
+   "vesting:warn",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:ok",
+   "oath-1:note"
+  ]
+ },
+ "kept.json": {
+  "grade": "A",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "vesting:ok",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:ok",
+   "bond:ok"
+  ]
+ },
+ "noalloc.json": {
+  "grade": "B",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:ok",
+   "oath-1:note"
+  ]
+ },
+ "nobond.json": {
+  "grade": "C",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "vesting:warn",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:warn"
+  ]
+ },
+ "selfpay.json": {
+  "grade": "C",
+  "findings": [
+   "solvent:ok",
+   "alloc:ok",
+   "vesting:warn",
+   "maxwallet:ok",
+   "fee:ok",
+   "treasury:warn",
+   "bond:ok",
+   "oath-1:note"
+  ]
+ }
+}
