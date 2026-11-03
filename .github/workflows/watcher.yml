@@ -1,0 +1,37 @@
+name: Watcher
+
+# The OATH watcher bot, run by GitHub every hour. It scans every coin, enforces any
+# broken bonded oath for the 5% bounty, and claims payouts owed to the demo holder.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: mcp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: mcp/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+      - name: Enforce broken oaths (watcher account)
+        env:
+          NEAR_ACCOUNT_ID: ${{ secrets.WATCHER_ACCOUNT_ID }}
+          NEAR_PRIVATE_KEY: ${{ secrets.WATCHER_PRIVATE_KEY }}
+        run: node dist/watch.js --once
+      - name: Claim payouts (demo holder account)
+        env:
+          NEAR_ACCOUNT_ID: ${{ secrets.HOLDER_ACCOUNT_ID }}
+          NEAR_PRIVATE_KEY: ${{ secrets.HOLDER_PRIVATE_KEY }}
+        run: node dist/watch.js --once --claim
