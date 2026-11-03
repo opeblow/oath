@@ -1,10 +1,10 @@
 name: Watcher
 
-# The OATH watcher bot, run by GitHub every hour. It scans every coin, enforces any
+# The OATH watcher bot, run by GitHub every 20 minutes. It scans every coin, enforces any
 # broken bonded oath for the 5% bounty, and claims payouts owed to the demo holder.
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:
 
 permissions:
