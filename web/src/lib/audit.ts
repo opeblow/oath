@@ -2,7 +2,7 @@
 // The same rules run in the OutLayer auditor, so a browser result and a verifiable
 // off-chain result can be compared line by line.
 
-import { bpsToPct, duration, near, percent } from "./format";
+import { bpsToPct, duration, near, percent } from "./format.js";
 import type { Certificate } from "./types";
 
 export type Severity = "ok" | "note" | "warn" | "risk";
