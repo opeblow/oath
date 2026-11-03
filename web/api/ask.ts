@@ -1,5 +1,5 @@
 // Vercel function: POST /api/ask
-import { ask, HttpError } from "./_lib/ask";
+import { ask, HttpError } from "./_lib/ask.js";
 
 export async function POST(request: Request): Promise<Response> {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
