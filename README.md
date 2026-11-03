@@ -54,7 +54,7 @@ All of these read live from NEAR testnet.
 2. **See a kept promise.** Open [Kept Word ($KEPT)](https://oath-near.vercel.app/coin/kept.oathcoin.testnet). On the **Oaths** tab, oath 6 reads **Kept**: the creator added 1 NEAR to the floor and reclaimed the stake.
 3. **See a broken promise.** Open [First Oath ($FIRST)](https://oath-near.vercel.app/coin/first.oathcoin.testnet). Its creator promised a daily update and missed it on 3 Nov 2026. The oath reads **Broken**, the **Activity** tab shows who enforced it, and "Paid to holders" shows the stake that went to holders.
 4. **Verify without trusting us.** On any coin, open **Verify**. The page reads the chain directly and shows zero access keys, the global code hash, factory registration and a solvency check.
-5. **Read the audit.** Open **Audit** for a grade from A to D. The same rules run in a WASI program on NEAR OutLayer ([auditor/](auditor)).
+5. **Read the audit.** Open **Audit** for a grade from A to D. The same rules run in a WASI program on NEAR OutLayer ([auditor/](auditor)). Here is a real run for $KEPT, grade A, recorded on chain: [transaction FyPm12aT...](https://testnet.nearblocks.io/txns/FyPm12aTefgv2PQxt9LchVkLwiScwEqC59hWp475eZs3).
 6. **Ask the auditor.** Open **Ask the auditor** and click a suggested question. A model on NEAR AI Cloud answers inside a TEE. The server checks four things before showing the answer, and the page lists each one: the request and response hashes match the signed text, the signature recovers to the enclave key, that key is in the model's attestation report, and the report is bound to a fresh nonce.
 7. **Read a coin with one HTTP request:**
    ```bash
