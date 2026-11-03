@@ -1,0 +1,14 @@
+{
+  "name": "oath-sandbox-tests",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "End-to-end tests of the OATH factory and token on a local NEAR sandbox (global contracts included)",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/oath.test.mjs"
+  },
+  "devDependencies": {
+    "near-api-js": "7.4.0",
+    "near-sandbox": "0.3.4"
+  }
+}
