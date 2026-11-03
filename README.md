@@ -31,7 +31,7 @@ Every memecoin launch comes with promises: *"liquidity is locked"*, *"the team w
 
 - What code can prevent, it **prevents**. Liquidity has no withdraw method. Creator tokens cannot move before they vest.
 - What code cannot prevent, it **prices**. The creator stakes NEAR on each future promise. Miss a deadline and anyone can enforce it: they earn 5% of the stake and holders split the other 95%.
-- Nobody holds the keys. Each coin is its own contract account with **zero access keys**, running one published code hash. Not the creator, not us.
+- Nobody holds the keys. Each coin is its own contract account with **zero access keys**, running one published code hash, and the factory that creates them has zero keys too. Not the creator, not us.
 
 > Built at NEAR HACKATHON 2026 for the **Memecoins With Mechanics** track. The mechanic is accountability: a coin whose creator can be fined by its own community, automatically.
 
@@ -83,6 +83,9 @@ curl -s https://rpc.testnet.fastnear.com -H 'Content-Type: application/json' -d 
 
 near account list-keys kept.oathcoin.testnet network-config testnet now
 # -> no keys. Nobody can sign for this coin.
+
+near account list-keys oathcoin.testnet network-config testnet now
+# -> no keys. The factory is locked too: nobody can change how coins are made.
 ```
 
 ## Try it with a testnet wallet
