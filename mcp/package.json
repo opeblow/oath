@@ -1,0 +1,29 @@
+{
+  "name": "oath-mcp",
+  "version": "0.1.0",
+  "description": "MCP server and watcher bot for OATH memecoins on NEAR",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "oath-mcp": "dist/server.js",
+    "oath-watch": "dist/watch.js",
+    "oath-outlayer-audit": "dist/outlayer.js"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/server.ts src/watch.ts src/outlayer.ts --bundle --platform=node --format=esm --target=node20 --outdir=dist --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "start": "node dist/server.js",
+    "watch": "node dist/watch.js",
+    "test": "node --test test/server.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "near-api-js": "^7.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}
