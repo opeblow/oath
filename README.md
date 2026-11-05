@@ -23,6 +23,16 @@
 
 ---
 
+## DEMO VIDEO
+
+<p align="center">
+  <a href="https://youtu.be/d7Q7BIl0Gd0"><img src="https://img.youtube.com/vi/d7Q7BIl0Gd0/maxresdefault.jpg" alt="Watch the OATH demo video on YouTube" width="100%"></a>
+</p>
+
+<p align="center"><a href="https://youtu.be/d7Q7BIl0Gd0"><b>Watch the demo on YouTube</b></a> (2:54)</p>
+
+---
+
 ## A memecoin is a promise. OATH makes it a contract.
 
 Every memecoin launch comes with promises: *"liquidity is locked"*, *"the team won't dump"*, *"we ship every week"*. They live in a tweet, so breaking them costs nothing, and buyers find out at the bottom of the chart.
