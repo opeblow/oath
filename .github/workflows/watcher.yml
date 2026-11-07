@@ -34,4 +34,6 @@ jobs:
         env:
           NEAR_ACCOUNT_ID: ${{ secrets.HOLDER_ACCOUNT_ID }}
           NEAR_PRIVATE_KEY: ${{ secrets.HOLDER_PRIVATE_KEY }}
-        run: node dist/watch.js --once --claim
+        run: |
+          if [ -z "$NEAR_PRIVATE_KEY" ]; then echo "No holder key set, skipping claims."; exit 0; fi
+          node dist/watch.js --once --claim
