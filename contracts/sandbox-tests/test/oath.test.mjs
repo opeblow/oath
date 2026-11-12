@@ -186,3 +186,102 @@ test("a missed heartbeat is enforced: 5% to the enforcer, 95% to holders", { tim
   await rejects(call(creator, id, "heartbeat", { message: "too late" }), /No active heartbeat/);
   assert.equal((await view(id, "get_certificate")).accounting.solvent, true);
 });
+
+test("an enforced oath is final: no second enforcement, no reclaim", async () => {
+  const id = `beat.${factory.accountId}`;
+  const before = await view(id, "get_certificate");
+  await rejects(call(watcher, id, "enforce", { index: 0 }), /not broken/);
+  await rejects(call(bob, id, "enforce", { index: 0 }), /not broken/);
+  await rejects(call(creator, id, "reclaim_stake", { index: 0 }), /not kept/);
+  await rejects(call(watcher, id, "enforce", { index: 7 }), /No such oath/);
+  const after = await view(id, "get_certificate");
+  assert.equal(after.bond_locked, "0");
+  assert.equal(after.payouts_distributed, before.payouts_distributed, "failed calls change nothing");
+  assert.equal(after.bonded[0].enforced_by, watcher.accountId);
+  assert.equal(BigInt(after.payouts_distributed) + BigInt(after.curve.floor_added), (NEAR * 95n) / 100n);
+});
+
+test("two broken oaths, two holders: both stakes are fully accounted for", { timeout: 240_000 }, async () => {
+  const stake = NEAR;
+  const p = params({
+    symbol: "DUO",
+    bonded: [
+      { terms: { kind: "heartbeat", every_secs: 60, for_secs: 3600 }, stake: stake.toString() },
+      { terms: { kind: "floor_top_up", amount: NEAR.toString(), within_secs: 60 }, stake: (stake / 2n).toString() },
+    ],
+  });
+  const id = await launch("duo", p);
+  await call(alice, id, "buy", { min_tokens_out: "0" }, near(0.5));
+  await call(bob, id, "buy", { min_tokens_out: "0" }, near(0.25));
+
+  // Too early: both calls fail and the bond is untouched.
+  await rejects(call(watcher, id, "enforce", { index: 0 }), /not broken/);
+  await rejects(call(watcher, id, "enforce", { index: 1 }), /not broken/);
+  assert.equal((await view(id, "get_certificate")).bond_locked, (stake + stake / 2n).toString());
+
+  await sleep(65_000);
+  let cert = await view(id, "get_certificate");
+  assert.deepEqual(cert.bonded.map((b) => b.status), ["breakable", "breakable"]);
+
+  // A deposit after the deadline is welcome in the floor but does not rescue the oath.
+  await call(creator, id, "add_to_floor", {}, NEAR);
+  assert.equal((await view(id, "get_certificate")).bonded[1].status, "breakable");
+
+  // Any account can enforce, including a holder. Holders claim after each enforcement.
+  const balA = BigInt((await view(id, "get_holder", { account_id: alice.accountId })).balance);
+  const balB = BigInt((await view(id, "get_holder", { account_id: bob.accountId })).balance);
+  let pool = 0n;
+  for (const [index, enforcer, expected] of [[1, watcher, stake / 40n], [0, bob, stake / 20n]]) {
+    const bounty = BigInt(await call(enforcer, id, "enforce", { index }));
+    assert.equal(bounty, expected);
+    await rejects(call(watcher, id, "enforce", { index }), /not broken/);
+    const round = BigInt(p.bonded[index].stake) - bounty;
+    pool += round;
+    const owedA = BigInt((await view(id, "get_holder", { account_id: alice.accountId })).claimable);
+    const owedB = BigInt((await view(id, "get_holder", { account_id: bob.accountId })).claimable);
+    assert.ok(owedA + owedB <= round && owedA + owedB >= round - 4n, "holders are owed the whole pool, less dust");
+    const expectedA = (round * balA) / (balA + balB);
+    const diff = owedA > expectedA ? owedA - expectedA : expectedA - owedA;
+    assert.ok(diff <= 2n, "shares follow balances");
+    assert.equal((await view(id, "get_holder", { account_id: creator.accountId })).claimable, "0");
+    assert.equal(BigInt(await call(alice, id, "claim")), owedA);
+    assert.equal(BigInt(await call(bob, id, "claim")), owedB);
+    await rejects(call(alice, id, "claim"), /Nothing to claim/);
+    await rejects(call(bob, id, "claim"), /Nothing to claim/);
+    await rejects(call(creator, id, "claim"), /Nothing to claim/);
+  }
+
+  cert = await view(id, "get_certificate");
+  assert.equal(cert.bond_locked, "0");
+  // Paid to holders + dust in the floor == both pools. The extra NEAR is the creator's late deposit.
+  assert.equal(BigInt(cert.payouts_distributed) + BigInt(cert.curve.floor_added), pool + NEAR);
+  assert.ok(BigInt(cert.accounting.unclaimed_payouts) < 6n);
+  assert.equal(cert.accounting.solvent, true);
+});
+
+test("a launch that fails to initialise leaves no account and no registry entry", async () => {
+  const bad = params({ symbol: "BAD", fee_bps: 500 }); // over the sealed 2% fee cap
+  const before = await creator.getBalance();
+  const count = await view(factory.accountId, "get_coin_count");
+  await call(creator, factory.accountId, "create_coin", { sub: "bad", params: bad }, launchCost(bad), 300n * TGAS).catch(() => false);
+  const id = `bad.${factory.accountId}`;
+  await assert.rejects(provider.viewAccount({ accountId: id }), "the coin account must not exist");
+  assert.equal(await view(factory.accountId, "get_coin", { coin_id: id }), null);
+  assert.equal(await view(factory.accountId, "get_coin_count"), count);
+  const spent = BigInt(before) - BigInt(await creator.getBalance());
+  assert.ok(spent < NEAR / 10n, "the deposit came back; only gas was spent");
+});
+
+test("the real account balance of every coin covers its books", async () => {
+  for (const sub of ["dog", "keep", "beat", "duo"]) {
+    const id = `${sub}.${factory.accountId}`;
+    const a = (await view(id, "get_certificate")).accounting;
+    const account = await provider.viewAccount({ accountId: id });
+    const balance = BigInt(account.amount ?? account.balance?.total ?? a.contract_balance);
+    assert.equal(a.solvent, true, `${sub} reports solvent`);
+    assert.ok(balance >= BigInt(a.liabilities) + BigInt(a.storage_cost), `${sub}: balance covers reserve, treasury, bond, payouts and storage`);
+    assert.equal(BigInt(a.liabilities), BigInt(a.real_near_reserve) + BigInt(a.treasury) + BigInt(a.bond_locked) + BigInt(a.unclaimed_payouts));
+    const keys = await provider.viewAccessKeyList({ accountId: id });
+    assert.equal(keys.keys.length, 0, `${sub} has no access keys`);
+  }
+});
