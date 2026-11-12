@@ -231,6 +231,7 @@ Known behaviours worth knowing:
 - **A stake is the maximum penalty.** A creator who decides a 1 NEAR stake is worth losing can still break the promise. OATH makes that public, permanent and paid to holders; it does not make it impossible.
 - **Payouts go to holders at the moment of enforcement.** Someone could buy just before enforcing to take a share. They pay the curve fee both ways, and earlier holders are diluted, not excluded.
 - **Reselling creator tokens needs buyers.** A vested creator can sell only into NEAR that buyers put in; the curve never pays out more than it received.
+- **Known rounding edge case in the deployed code.** If two oaths on the same coin are enforced and a holder claims only after both, the combined rounding can make the last claim exceed the contract's `unclaimed` counter by 1 yoctoNEAR, and that claim reverts until a later payout tops the counter up. Found by our own sandbox test after submission. No NEAR is lost and the contract stays solvent, but the holder is blocked. Claiming after each enforcement avoids it, and coins with one bonded oath (both demo coins) cannot hit it. The fix is a one-line saturating subtraction; because coins are keyless it ships only with a new code hash.
 - **Enforcement needs someone to call it.** A broken oath stays `breakable` forever, including after its term ends, until an account enforces it. The creator cannot reclaim it by waiting.
 
 Report a vulnerability through [SECURITY.md](SECURITY.md).

@@ -219,6 +219,8 @@ What the contract tests pin down, by property:
 | Reclaiming kept bonds | `a_kept_stake_is_reclaimed_only_once`, `a_broken_oath_cannot_be_reclaimed`, `only_the_creator_reclaims_a_kept_stake` |
 | Failed launches roll back | sandbox "a launch that fails to initialise leaves no account and no registry entry" |
 
+A defect the tests found: when two oaths on one coin are enforced before a holder claims, the last claim can revert on a 1 yoctoNEAR rounding shortfall in the `unclaimed` counter (`contracts/token/src/lib.rs`, `claim`). The sandbox test therefore claims after each enforcement, and the README lists this under known behaviours. The deployed code is keyless and was not changed.
+
 All tests are in [`contracts/token/src/tests.rs`](../contracts/token/src/tests.rs) and [`contracts/sandbox-tests/test/oath.test.mjs`](../contracts/sandbox-tests/test/oath.test.mjs).
 
 ## 10. Submission snapshot

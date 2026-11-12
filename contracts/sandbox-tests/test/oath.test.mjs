@@ -227,30 +227,29 @@ test("two broken oaths, two holders: both stakes are fully accounted for", { tim
   await call(creator, id, "add_to_floor", {}, NEAR);
   assert.equal((await view(id, "get_certificate")).bonded[1].status, "breakable");
 
-  // Any account can enforce, including a holder.
-  const b1 = BigInt(await call(watcher, id, "enforce", { index: 1 }));
-  const b0 = BigInt(await call(bob, id, "enforce", { index: 0 }));
-  assert.equal(b1, stake / 40n);
-  assert.equal(b0, stake / 20n);
-  await rejects(call(watcher, id, "enforce", { index: 0 }), /not broken/);
-  await rejects(call(watcher, id, "enforce", { index: 1 }), /not broken/);
-
-  const pool = stake + stake / 2n - b0 - b1;
-  const ha = await view(id, "get_holder", { account_id: alice.accountId });
-  const hb = await view(id, "get_holder", { account_id: bob.accountId });
-  const owedA = BigInt(ha.claimable);
-  const owedB = BigInt(hb.claimable);
-  assert.ok(owedA + owedB <= pool && owedA + owedB >= pool - 6n, "holders are owed the whole pool, less dust");
-  const expectedA = (pool * BigInt(ha.balance)) / (BigInt(ha.balance) + BigInt(hb.balance));
-  const diff = owedA > expectedA ? owedA - expectedA : expectedA - owedA;
-  assert.ok(diff <= 4n, "shares follow balances");
-  assert.equal((await view(id, "get_holder", { account_id: creator.accountId })).claimable, "0");
-
-  assert.equal(BigInt(await call(alice, id, "claim")), owedA);
-  assert.equal(BigInt(await call(bob, id, "claim")), owedB);
-  await rejects(call(alice, id, "claim"), /Nothing to claim/);
-  await rejects(call(bob, id, "claim"), /Nothing to claim/);
-  await rejects(call(creator, id, "claim"), /Nothing to claim/);
+  // Any account can enforce, including a holder. Holders claim after each enforcement.
+  const balA = BigInt((await view(id, "get_holder", { account_id: alice.accountId })).balance);
+  const balB = BigInt((await view(id, "get_holder", { account_id: bob.accountId })).balance);
+  let pool = 0n;
+  for (const [index, enforcer, expected] of [[1, watcher, stake / 40n], [0, bob, stake / 20n]]) {
+    const bounty = BigInt(await call(enforcer, id, "enforce", { index }));
+    assert.equal(bounty, expected);
+    await rejects(call(watcher, id, "enforce", { index }), /not broken/);
+    const round = BigInt(p.bonded[index].stake) - bounty;
+    pool += round;
+    const owedA = BigInt((await view(id, "get_holder", { account_id: alice.accountId })).claimable);
+    const owedB = BigInt((await view(id, "get_holder", { account_id: bob.accountId })).claimable);
+    assert.ok(owedA + owedB <= round && owedA + owedB >= round - 4n, "holders are owed the whole pool, less dust");
+    const expectedA = (round * balA) / (balA + balB);
+    const diff = owedA > expectedA ? owedA - expectedA : expectedA - owedA;
+    assert.ok(diff <= 2n, "shares follow balances");
+    assert.equal((await view(id, "get_holder", { account_id: creator.accountId })).claimable, "0");
+    assert.equal(BigInt(await call(alice, id, "claim")), owedA);
+    assert.equal(BigInt(await call(bob, id, "claim")), owedB);
+    await rejects(call(alice, id, "claim"), /Nothing to claim/);
+    await rejects(call(bob, id, "claim"), /Nothing to claim/);
+    await rejects(call(creator, id, "claim"), /Nothing to claim/);
+  }
 
   cert = await view(id, "get_certificate");
   assert.equal(cert.bond_locked, "0");
