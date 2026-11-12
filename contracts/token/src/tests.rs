@@ -367,3 +367,499 @@ fn cannot_transfer_into_curve() {
     ctx("alice.testnet", 1, 6);
     c.ft_transfer(acc("pepe.oath.testnet"), U128(a), None);
 }
+
+// ---------------------------------------------------------------- enforcement, exactly once
+
+fn status(c: &Contract, i: usize) -> OathStatus {
+    c.get_certificate().bonded[i].status
+}
+
+fn liabilities(c: &Contract) -> u128 {
+    c.get_accounting().liabilities.0
+}
+
+#[test]
+#[should_panic(expected = "This oath is not broken")]
+fn a_broken_oath_cannot_be_enforced_twice() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    c.buy(U128(0));
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    ctx("second.testnet", 0, 7 * DAY + 2);
+    c.enforce(0);
+}
+
+#[test]
+#[should_panic(expected = "No such oath")]
+fn enforcing_an_unknown_oath_fails() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(1);
+}
+
+#[test]
+fn each_broken_oath_is_enforced_separately_and_the_pools_add_up() {
+    let mut c = launch(vec![heartbeat_oath(), topup_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    c.buy(U128(0));
+
+    // Day 3: the top-up is overdue, the weekly heartbeat is not.
+    ctx("watcher.testnet", 0, 3 * DAY + 1);
+    assert_eq!(status(&c, 0), OathStatus::Active);
+    assert_eq!(status(&c, 1), OathStatus::Breakable);
+    assert_eq!(c.enforce(1).0, near(1) / 20);
+    let cert = c.get_certificate();
+    assert_eq!(cert.bond_total.0, near(3));
+    assert_eq!(cert.bond_locked.0, near(2));
+    assert_eq!(cert.bonded[0].status, OathStatus::Active);
+    assert_eq!(cert.bonded[1].status, OathStatus::Broken);
+    assert_eq!(cert.bonded[1].enforced_by, Some(acc("watcher.testnet")));
+
+    // Day 7: the heartbeat is overdue too. A different account enforces it.
+    ctx("second.testnet", 0, 7 * DAY + 1);
+    assert_eq!(c.enforce(0).0, near(2) / 20);
+    let cert = c.get_certificate();
+    assert_eq!(cert.bond_locked.0, 0);
+    let pools = near(3) - near(3) / 20;
+    assert_eq!(cert.payouts_distributed.0 + cert.curve.floor_added.0, pools);
+    assert_eq!(cert.accounting.unclaimed_payouts.0, cert.payouts_distributed.0);
+    let owed = c.get_holder(acc("alice.testnet")).claimable.0;
+    assert!(owed <= pools && owed + 4 >= pools);
+}
+
+// ---------------------------------------------------------------- claims, rounding and dust
+
+#[test]
+fn three_holders_claim_in_proportion_to_their_balances() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    let buys = [("alice.testnet", milli(500)), ("bob.testnet", near(1)), ("carol.testnet", milli(1500))];
+    let mut bals = vec![];
+    for (i, &(who, amount)) in buys.iter().enumerate() {
+        ctx(who, amount, 5 + i as u64);
+        bals.push(c.buy(U128(0)).0);
+    }
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    let bounty = c.enforce(0).0;
+    let pool = near(2) - bounty;
+    let total: u128 = bals.iter().sum();
+    let mut paid = 0u128;
+    for (i, &(who, _)) in buys.iter().enumerate() {
+        ctx(who, 0, 7 * DAY + 2);
+        let got = c.claim().0;
+        assert!(got.abs_diff(mul_div(pool, bals[i], total)) <= 2);
+        assert_eq!(c.get_holder(acc(who)).claimable.0, 0);
+        paid += got;
+    }
+    assert!(paid <= pool && paid + 6 >= pool);
+    // Whatever rounding left behind stays on the books as a liability; it is never over-paid.
+    assert!(c.get_accounting().unclaimed_payouts.0 < 4);
+    assert_eq!(c.get_certificate().holders, 3);
+}
+
+#[test]
+fn payout_rounding_dust_goes_to_the_floor() {
+    let stake = milli(100) + 12_345_677;
+    let oath = BondedOathInput {
+        terms: BondedTermsInput::FloorTopUp { amount: U128(near(1)), within_secs: 3 * DAY },
+        stake: U128(stake),
+    };
+    let mut c = launch(vec![oath]);
+    let buys = [("alice.testnet", milli(333)), ("bob.testnet", milli(777)), ("carol.testnet", milli(1111))];
+    for (i, &(who, amount)) in buys.iter().enumerate() {
+        ctx(who, amount, 5 + i as u64);
+        c.buy(U128(0));
+    }
+    ctx("watcher.testnet", 0, 3 * DAY + 1);
+    let bounty = c.enforce(0).0;
+    assert_eq!(bounty, stake * 500 / 10_000);
+    let pool = stake - bounty;
+    let cert = c.get_certificate();
+    // Bounty + paid to holders + dust added to the floor == the stake. Nothing is lost.
+    assert_eq!(cert.payouts_distributed.0 + cert.curve.floor_added.0, pool);
+    assert!(cert.curve.floor_added.0 <= 2);
+    let sum: u128 = buys.iter().map(|&(who, _)| c.get_holder(acc(who)).claimable.0).sum();
+    assert!(sum <= cert.payouts_distributed.0 && sum + 4 >= cert.payouts_distributed.0);
+}
+
+#[test]
+#[should_panic(expected = "Nothing to claim")]
+fn a_payout_is_claimed_only_once() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    c.buy(U128(0));
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    ctx("alice.testnet", 0, 7 * DAY + 2);
+    assert!(c.claim().0 > 0);
+    c.claim();
+}
+
+#[test]
+#[should_panic(expected = "Nothing to claim")]
+fn the_creator_earns_nothing_from_their_own_broken_oath() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    c.buy(U128(0));
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    // The creator holds 5% of supply but is excluded from the payout.
+    ctx("creator.testnet", 0, 7 * DAY + 2);
+    c.claim();
+}
+
+#[test]
+fn a_holder_who_sells_everything_keeps_the_payout_already_earned() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    let a = c.buy(U128(0)).0;
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    let owed = c.get_holder(acc("alice.testnet")).claimable.0;
+    assert!(owed > 0);
+    ctx("alice.testnet", 1, 7 * DAY + 2);
+    c.sell(U128(a), U128(0));
+    assert_eq!(c.get_holder(acc("alice.testnet")).claimable.0, owed);
+    assert_eq!(c.get_certificate().holders, 0);
+    ctx("alice.testnet", 0, 7 * DAY + 3);
+    assert_eq!(c.claim().0, owed);
+}
+
+#[test]
+#[should_panic(expected = "Claim payouts before unregistering")]
+fn cannot_unregister_while_a_payout_is_owed() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    let a = c.buy(U128(0)).0;
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    ctx("alice.testnet", 1, 7 * DAY + 2);
+    c.sell(U128(a), U128(0));
+    ctx("alice.testnet", 1, 7 * DAY + 3);
+    c.storage_unregister(None);
+}
+
+// ---------------------------------------------------------------- deadlines: expired and not
+
+#[test]
+fn heartbeat_deadline_is_exclusive() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    // Exactly on the deadline the oath is still alive and the creator can still check in.
+    ctx("creator.testnet", 0, 7 * DAY);
+    assert_eq!(status(&c, 0), OathStatus::Active);
+    c.heartbeat("right on time".into());
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    assert_eq!(status(&c, 0), OathStatus::Active);
+}
+
+#[test]
+#[should_panic(expected = "No active heartbeat oath")]
+fn a_late_heartbeat_cannot_rescue_a_missed_one() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("creator.testnet", 0, 7 * DAY + 1);
+    c.heartbeat("sorry, late".into());
+}
+
+#[test]
+fn a_missed_heartbeat_stays_enforceable_after_the_term_ends() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    // Nobody enforced during the 28-day term. Waiting does not turn "missed" into "kept".
+    ctx("watcher.testnet", 0, 40 * DAY);
+    assert_eq!(status(&c, 0), OathStatus::Breakable);
+    assert_eq!(c.enforce(0).0, near(2) / 20);
+    assert_eq!(status(&c, 0), OathStatus::Broken);
+}
+
+#[test]
+#[should_panic(expected = "Oath is not kept yet")]
+fn the_creator_cannot_outwait_a_missed_heartbeat() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("creator.testnet", 0, 40 * DAY);
+    c.reclaim_stake(0);
+}
+
+#[test]
+#[should_panic(expected = "This oath is not broken")]
+fn a_kept_heartbeat_cannot_be_enforced() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    for week in 1..=4u64 {
+        ctx("creator.testnet", 0, week * 7 * DAY - 60);
+        c.heartbeat(format!("week {} update", week));
+    }
+    ctx("watcher.testnet", 0, 28 * DAY + 1);
+    c.enforce(0);
+}
+
+#[test]
+fn floor_oath_counts_only_creator_deposits_made_in_time() {
+    let mut c = launch(vec![topup_oath()]);
+    // Anyone may add to the floor, but a stranger's deposit does not keep the creator's promise.
+    ctx("alice.testnet", near(1), DAY);
+    c.add_to_floor();
+    let cert = c.get_certificate();
+    assert_eq!(cert.bonded[0].status, OathStatus::Active);
+    assert_eq!(cert.bonded[0].deposited.unwrap().0, 0);
+    // The creator may pay in parts, up to and including the deadline.
+    ctx("creator.testnet", milli(400), DAY + 1);
+    c.add_to_floor();
+    assert_eq!(status(&c, 0), OathStatus::Active);
+    assert_eq!(c.get_certificate().bonded[0].deposited.unwrap().0, milli(400));
+    ctx("creator.testnet", milli(600), 3 * DAY);
+    c.add_to_floor();
+    assert_eq!(status(&c, 0), OathStatus::Kept);
+    assert_eq!(c.get_curve().floor_added.0, near(2));
+}
+
+#[test]
+fn a_late_floor_deposit_does_not_save_the_oath() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("creator.testnet", near(1), 3 * DAY + 1);
+    c.add_to_floor();
+    let cert = c.get_certificate();
+    assert_eq!(cert.bonded[0].status, OathStatus::Breakable);
+    assert_eq!(cert.bonded[0].deposited.unwrap().0, 0);
+    ctx("watcher.testnet", 0, 3 * DAY + 2);
+    assert_eq!(c.enforce(0).0, near(1) / 20);
+}
+
+#[test]
+#[should_panic(expected = "This oath is not broken")]
+fn a_kept_floor_oath_cannot_be_enforced_after_its_deadline() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("creator.testnet", near(1), DAY);
+    c.add_to_floor();
+    ctx("watcher.testnet", 0, 30 * DAY);
+    c.enforce(0);
+}
+
+// ---------------------------------------------------------------- bond accounting and reclaim
+
+#[test]
+fn bond_accounting_follows_each_oath() {
+    let mut c = launch(vec![heartbeat_oath(), topup_oath()]);
+    assert_eq!(c.get_certificate().bond_total.0, near(3));
+    assert_eq!(c.get_certificate().bond_locked.0, near(3));
+    // Keep the top-up and take that stake back.
+    ctx("creator.testnet", near(1), DAY);
+    c.add_to_floor();
+    ctx("creator.testnet", 0, DAY + 1);
+    assert_eq!(c.reclaim_stake(1).0, near(1));
+    let cert = c.get_certificate();
+    assert_eq!(cert.bond_total.0, near(3));
+    assert_eq!(cert.bond_locked.0, near(2));
+    assert!(cert.bonded[1].reclaimed);
+    // Break the heartbeat: the rest of the bond leaves through enforcement.
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    c.enforce(0);
+    assert_eq!(c.get_certificate().bond_locked.0, 0);
+}
+
+#[test]
+#[should_panic(expected = "Already reclaimed")]
+fn a_kept_stake_is_reclaimed_only_once() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("creator.testnet", near(1), DAY);
+    c.add_to_floor();
+    ctx("creator.testnet", 0, DAY + 1);
+    c.reclaim_stake(0);
+    c.reclaim_stake(0);
+}
+
+#[test]
+#[should_panic(expected = "Oath is not kept yet")]
+fn an_active_oath_cannot_be_reclaimed() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("creator.testnet", 0, DAY);
+    c.reclaim_stake(0);
+}
+
+#[test]
+#[should_panic(expected = "Oath is not kept yet")]
+fn a_broken_oath_cannot_be_reclaimed() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("watcher.testnet", 0, 3 * DAY + 1);
+    c.enforce(0);
+    ctx("creator.testnet", 0, 3 * DAY + 2);
+    c.reclaim_stake(0);
+}
+
+#[test]
+#[should_panic(expected = "Only the creator can do this")]
+fn only_the_creator_reclaims_a_kept_stake() {
+    let mut c = launch(vec![topup_oath()]);
+    ctx("creator.testnet", near(1), DAY);
+    c.add_to_floor();
+    ctx("alice.testnet", 0, DAY + 1);
+    c.reclaim_stake(0);
+}
+
+// ---------------------------------------------------------------- vesting boundaries
+
+#[test]
+fn vesting_lock_is_full_until_the_cliff_and_zero_at_the_end() {
+    let c = launch(vec![]);
+    let alloc = c.get_certificate().creator_alloc.0;
+    let locked = |t: u64| {
+        ctx("creator.testnet", 0, t);
+        c.get_holder(acc("creator.testnet")).locked.0
+    };
+    assert_eq!(locked(0), alloc);
+    assert_eq!(locked(30 * DAY), alloc);
+    assert_eq!(locked(60 * DAY), alloc / 2);
+    assert!(locked(90 * DAY - 1) > 0);
+    assert_eq!(locked(90 * DAY), 0);
+    let mut prev = alloc;
+    for d in 0..=95u64 {
+        let l = locked(d * DAY);
+        assert!(l <= prev, "the lock never grows");
+        prev = l;
+    }
+}
+
+#[test]
+fn creator_can_move_exactly_the_vested_amount() {
+    let mut c = launch(vec![]);
+    let alloc = c.get_certificate().creator_alloc.0;
+    ctx("friend.testnet", near(1), 5);
+    c.storage_deposit(None, None);
+    ctx("creator.testnet", 1, 60 * DAY);
+    c.ft_transfer(acc("friend.testnet"), U128(alloc / 2), None);
+    assert_eq!(bal(&c, "friend.testnet"), alloc / 2);
+    assert_eq!(bal(&c, "creator.testnet"), alloc / 2);
+}
+
+#[test]
+#[should_panic(expected = "Oath: creator tokens are still vesting")]
+fn creator_cannot_move_one_unit_more_than_vested() {
+    let mut c = launch(vec![]);
+    let alloc = c.get_certificate().creator_alloc.0;
+    ctx("friend.testnet", near(1), 5);
+    c.storage_deposit(None, None);
+    ctx("creator.testnet", 1, 60 * DAY);
+    c.ft_transfer(acc("friend.testnet"), U128(alloc / 2 + 1), None);
+}
+
+#[test]
+#[should_panic(expected = "Creator allocation is capped at 10%")]
+fn creator_allocation_cap_is_sealed() {
+    ctx("oath.testnet", 0, 0);
+    let mut p = params(vec![]);
+    p.creator_alloc_bps = 1_001;
+    Contract::new(acc("creator.testnet"), p);
+}
+
+#[test]
+#[should_panic(expected = "Sell exceeds tokens sold by the curve")]
+fn vested_creator_tokens_cannot_take_more_near_than_buyers_put_in() {
+    let mut c = launch(vec![]);
+    // Fully vested, but nobody has bought: there is no reserve to sell into.
+    ctx("creator.testnet", 1, 91 * DAY);
+    c.sell(U128(10u128.pow(18)), U128(0));
+}
+
+// ---------------------------------------------------------------- treasury restrictions
+
+#[test]
+fn treasury_cap_resets_each_period() {
+    let mut c = launch(vec![]);
+    ctx("whale.testnet", near(300), DAY + 1);
+    c.buy(U128(0));
+    ctx("creator.testnet", 1, DAY + 2);
+    c.treasury_spend(acc("artist.testnet"), U128(near(1)), "week one".into());
+    ctx("creator.testnet", 1, 7 * DAY + 10);
+    let cert = c.get_certificate();
+    assert_eq!(cert.treasury_spent_this_period.0, 0);
+    assert_eq!(cert.treasury_period_index, 1);
+    c.treasury_spend(acc("artist.testnet"), U128(near(1)), "week two".into());
+    assert_eq!(c.get_certificate().treasury_spent_this_period.0, near(1));
+}
+
+#[test]
+#[should_panic(expected = "Only the creator can do this")]
+fn only_the_creator_spends_the_treasury() {
+    let mut c = launch(vec![]);
+    ctx("whale.testnet", near(200), DAY + 1);
+    c.buy(U128(0));
+    ctx("artist.testnet", 1, DAY + 2);
+    c.treasury_spend(acc("artist.testnet"), U128(1), "paying myself".into());
+}
+
+#[test]
+#[should_panic(expected = "Not enough in the treasury")]
+fn treasury_cannot_reach_the_reserve_or_the_bond() {
+    let mut c = launch(vec![heartbeat_oath()]);
+    ctx("alice.testnet", near(1), 5);
+    c.buy(U128(0));
+    // The contract holds about 3 NEAR (bond + reserve) but the treasury only holds the fee.
+    assert!(c.get_accounting().treasury.0 < milli(11));
+    ctx("creator.testnet", 1, DAY);
+    c.treasury_spend(acc("artist.testnet"), U128(milli(500)), "reach for the reserve".into());
+}
+
+#[test]
+#[should_panic(expected = "A public memo is required")]
+fn treasury_spend_needs_a_public_memo() {
+    let mut c = launch(vec![]);
+    ctx("whale.testnet", near(200), DAY + 1);
+    c.buy(U128(0));
+    ctx("creator.testnet", 1, DAY + 2);
+    c.treasury_spend(acc("artist.testnet"), U128(1), "   ".into());
+}
+
+// ---------------------------------------------------------------- conservation of NEAR
+
+/// Every yoctoNEAR that enters the contract sits in exactly one bucket (reserve, treasury,
+/// bond, unclaimed payouts) until it leaves. `liabilities` must move by exactly what came in
+/// or went out on every step of a full lifecycle.
+#[test]
+fn every_yocto_is_accounted_for_through_a_full_lifecycle() {
+    let mut c = launch(vec![heartbeat_oath(), topup_oath()]);
+    let mut expected = near(3);
+    assert_eq!(liabilities(&c), expected);
+
+    let buys = [("alice.testnet", near(1), 5u64), ("bob.testnet", milli(700), 6), ("carol.testnet", milli(1300), 7)];
+    for &(who, amount, ts) in buys.iter() {
+        ctx(who, 0, ts);
+        let q = c.quote_buy(U128(amount), Some(acc(who)));
+        ctx(who, amount, ts);
+        c.buy(U128(0));
+        expected += q.near_used.0 + q.fee.0;
+        assert_eq!(liabilities(&c), expected);
+    }
+
+    let half = bal(&c, "alice.testnet") / 2;
+    ctx("alice.testnet", 1, 100);
+    expected -= c.sell(U128(half), U128(0)).0;
+    assert_eq!(liabilities(&c), expected);
+
+    ctx("creator.testnet", near(1), DAY);
+    c.add_to_floor();
+    expected += near(1);
+    assert_eq!(liabilities(&c), expected);
+
+    ctx("creator.testnet", 0, DAY + 1);
+    expected -= c.reclaim_stake(1).0;
+    assert_eq!(liabilities(&c), expected);
+
+    ctx("watcher.testnet", 0, 7 * DAY + 1);
+    expected -= c.enforce(0).0;
+    assert_eq!(liabilities(&c), expected);
+
+    for &(who, _, _) in buys.iter() {
+        ctx(who, 0, 7 * DAY + 2);
+        expected -= c.claim().0;
+        assert_eq!(liabilities(&c), expected);
+    }
+
+    let t = c.get_accounting().treasury.0;
+    ctx("creator.testnet", 1, 7 * DAY + 3);
+    c.treasury_spend(acc("artist.testnet"), U128(t), "Paid the artist".into());
+    expected -= t;
+    assert_eq!(liabilities(&c), expected);
+
+    let a = c.get_accounting();
+    assert_eq!(a.bond_locked.0, 0);
+    assert_eq!(a.treasury.0, 0);
+    assert!(a.unclaimed_payouts.0 < 4);
+    assert_eq!(a.liabilities.0, a.real_near_reserve.0 + a.unclaimed_payouts.0);
+}
